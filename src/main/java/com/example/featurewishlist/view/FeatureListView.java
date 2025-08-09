@@ -5,24 +5,32 @@ import com.example.featurewishlist.model.FeatureStatus;
 import com.example.featurewishlist.model.Vote;
 import com.example.featurewishlist.repository.FeatureRequestRepository;
 import com.example.featurewishlist.repository.VoteRepository;
+
+import com.vaadin.flow.component.UI;
+import com.vaadin.flow.component.html.Anchor;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.grid.Grid;
 import com.vaadin.flow.component.html.H3;
+import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.formlayout.FormLayout;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
+import com.vaadin.flow.component.orderedlayout.FlexComponent.JustifyContentMode;
 import com.vaadin.flow.component.select.Select;
 import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.server.VaadinService;
+import com.vaadin.flow.server.auth.AnonymousAllowed;
+
 import jakarta.servlet.http.Cookie;
-import com.vaadin.flow.server.VaadinSession;
+import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -32,6 +40,7 @@ import java.util.stream.Collectors;
 
 @Route("")
 @PageTitle("Feature-Übersicht")
+@AnonymousAllowed // Seite ist ohne Login sichtbar
 public class FeatureListView extends VerticalLayout {
 
     private final FeatureRequestRepository repository;
@@ -50,19 +59,50 @@ public class FeatureListView extends VerticalLayout {
         configureFilter();
         configureGrid();
 
-        Button addFeatureButton = new Button("➕ Feature hinzufügen", e -> openAddFeatureDialog());
-        HorizontalLayout actions = new HorizontalLayout(statusFilter, addFeatureButton);
-        add(actions, grid);
+        // Auth-Leiste (Login/Logout)
+        HorizontalLayout authBar = buildAuthBar();
 
+        // Aktionen: Filter + optional Add-Button
+        HorizontalLayout actions = new HorizontalLayout();
+        actions.add(statusFilter);
+        if (isAuthenticated()) {
+            Button addFeatureButton = new Button("➕ Feature hinzufügen", e -> openAddFeatureDialog());
+            actions.add(addFeatureButton);
+        }
+
+        add(authBar, actions, grid);
         updateGrid(null);
     }
 
-    private boolean isAdmin() {
-        var auth = SecurityContextHolder.getContext().getAuthentication();
-        return auth != null && auth.getAuthorities().stream()
-                .anyMatch(granted -> granted.getAuthority().equals("ROLE_ADMIN"));
-    }
+    private HorizontalLayout buildAuthBar() {
+        HorizontalLayout bar = new HorizontalLayout();
+        bar.setWidthFull();
+        bar.setJustifyContentMode(JustifyContentMode.BETWEEN);
+        bar.getStyle().set("border-bottom", "1px solid var(--lumo-contrast-10pct)");
+        bar.getStyle().set("padding", "0.25rem 0");
 
+        if (!isAuthenticated()) {
+            Anchor login = new Anchor("login", "Login");
+            bar.add(new Span("Anonym"), login);
+            return bar;
+        }
+
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String username = auth != null ? auth.getName() : "user";
+        Span who = new Span("Angemeldet als: " + username);
+
+        Button logout = new Button("Logout", e -> {
+            CsrfToken csrf = (CsrfToken) VaadinService.getCurrentRequest().getAttribute("_csrf");
+            String token = csrf != null ? csrf.getToken() : "";
+            UI.getCurrent().getPage().executeJs(
+                "fetch('logout',{method:'POST',headers:{'X-CSRF-TOKEN': $0}}).then(()=>location.assign('/'));",
+                token
+            );
+        });
+
+        bar.add(who, logout);
+        return bar;
+    }
 
     private void configureFilter() {
         statusFilter.setLabel("Status filtern");
@@ -73,37 +113,58 @@ public class FeatureListView extends VerticalLayout {
     }
 
     private void configureGrid() {
-        grid.addColumn(FeatureRequest::getTitle).setHeader("Titel").setAutoWidth(true);
-        grid.addColumn(FeatureRequest::getCategory).setHeader("Kategorie");
-        grid.addColumn(FeatureRequest::getStatus).setHeader("Status");
-        grid.addColumn(fr -> fr.getCreatedAt().toLocalDate()).setHeader("Erstellt am");
-        grid.addComponentColumn(this::createVoteButton).setHeader("Votes");
-        grid.setAllRowsVisible(true);
+        grid.addColumn(FeatureRequest::getTitle)
+            .setHeader("Titel")
+            .setAutoWidth(true)
+            .setSortable(true);
+
+        grid.addColumn(FeatureRequest::getCategory)
+            .setHeader("Kategorie")
+            .setSortable(true);
+
         if (isAdmin()) {
             grid.addComponentColumn(this::createStatusSelector).setHeader("Status bearbeiten");
         } else {
-            grid.addColumn(FeatureRequest::getStatus).setHeader("Status");
+            grid.addColumn(FeatureRequest::getStatus)
+                .setHeader("Status")
+                .setSortable(true);
         }
+
+        grid.addColumn(FeatureRequest::getCreatedAt)
+            .setHeader("Erstellt am")
+            .setSortable(true)
+            .setAutoWidth(true)
+            .setKey("createdAt");
+
+        grid.addComponentColumn(this::createVoteButton).setHeader("Votes");
+
+        grid.setAllRowsVisible(true);
     }
 
     private Select<FeatureStatus> createStatusSelector(FeatureRequest feature) {
         Select<FeatureStatus> statusSelect = new Select<>();
         statusSelect.setItems(FeatureStatus.values());
         statusSelect.setValue(feature.getStatus());
-        statusSelect.setWidth("150px");
+        statusSelect.setWidth("180px");
         statusSelect.addValueChangeListener(event -> {
             feature.setStatus(event.getValue());
             repository.save(feature);
             Notification.show("Status aktualisiert");
+            updateGrid(statusFilter.getValue());
         });
         return statusSelect;
     }
-    
-    
-    
+
     private Button createVoteButton(FeatureRequest feature) {
         long votes = voteRepository.countByFeature(feature);
         Button voteBtn = new Button("👍 " + votes);
+
+        if (!isAuthenticated()) {
+            voteBtn.setEnabled(false);
+            voteBtn.getElement().setProperty("title", "Bitte einloggen, um abzustimmen");
+            return voteBtn;
+        }
+
         voteBtn.addClickListener(e -> {
             String voterId = getOrCreateVoterId();
             Optional<Vote> existing = voteRepository.findByFeatureIdAndVoterId(feature.getId(), voterId);
@@ -120,6 +181,17 @@ public class FeatureListView extends VerticalLayout {
             }
         });
         return voteBtn;
+    }
+
+    private boolean isAuthenticated() {
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth != null && auth.isAuthenticated() && !(auth instanceof AnonymousAuthenticationToken);
+    }
+
+    private boolean isAdmin() {
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth != null && auth.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
     }
 
     private String getOrCreateVoterId() {
@@ -154,6 +226,11 @@ public class FeatureListView extends VerticalLayout {
     }
 
     private void openAddFeatureDialog() {
+        if (!isAuthenticated()) {
+            Notification.show("Bitte einloggen, um ein Feature hinzuzufügen.");
+            return;
+        }
+
         Dialog dialog = new Dialog();
         dialog.setHeaderTitle("Neues Feature hinzufügen");
 
@@ -162,6 +239,10 @@ public class FeatureListView extends VerticalLayout {
         TextField category = new TextField("Kategorie");
 
         Button save = new Button("Speichern", event -> {
+            if (title.isEmpty()) {
+                Notification.show("Titel ist erforderlich");
+                return;
+            }
             FeatureRequest request = FeatureRequest.builder()
                     .title(title.getValue())
                     .description(description.getValue())
