@@ -46,17 +46,7 @@ public class AdminFeatureView extends VerticalLayout {
     }
 
     private void configureGrid() {
-        grid.removeAllColumns(); // Safety: alte Spalten weg
         grid.setWidthFull();
-        grid.setAllRowsVisible(true);
-
-        // Button-Spalte ganz nach vorne und fixiert
-        grid.addComponentColumn(fr -> new Button("Bearbeiten", e -> openEditDialog(fr)))
-            .setHeader("Aktion")
-            .setKey("edit")
-            .setAutoWidth(true)
-            .setFrozen(true)       // << fix
-            .setFlexGrow(0);
 
         grid.addColumn(FeatureRequest::getTitle)
             .setHeader("Titel")
@@ -83,9 +73,14 @@ public class AdminFeatureView extends VerticalLayout {
             .setSortable(true)
             .setAutoWidth(true);
 
+        // 👉 pro Zeile ein Edit-Button, der ein Popup öffnet
+        grid.addComponentColumn(this::createEditButton)
+            .setHeader("Aktion")
+            .setAutoWidth(true)
+            .setFlexGrow(0);
+
         add(grid);
     }
-
 
     private Button createEditButton(FeatureRequest fr) {
         return new Button("Bearbeiten", e -> openEditDialog(fr));
