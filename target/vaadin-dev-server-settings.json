@@ -1,0 +1,17 @@
+{
+  "frontendFolder": "/home/cyrano/DEV/feature-wishlist/./frontend",
+  "themeFolder": "themes",
+  "themeResourceFolder": "/home/cyrano/DEV/feature-wishlist/./frontend/generated/jar-resources",
+  "staticOutput": "/home/cyrano/DEV/feature-wishlist/target/classes/META-INF/VAADIN/webapp/VAADIN/static",
+  "generatedFolder": "generated",
+  "statsOutput": "/home/cyrano/DEV/feature-wishlist/target/classes/META-INF/VAADIN/config",
+  "frontendBundleOutput": "/home/cyrano/DEV/feature-wishlist/target/classes/META-INF/VAADIN/webapp",
+  "devBundleOutput": "/home/cyrano/DEV/feature-wishlist/target/dev-bundle/webapp",
+  "devBundleStatsOutput": "/home/cyrano/DEV/feature-wishlist/target/dev-bundle/config",
+  "jarResourcesFolder": "/home/cyrano/DEV/feature-wishlist/./frontend/generated/jar-resources",
+  "themeName": "",
+  "clientServiceWorkerSource": "/home/cyrano/DEV/feature-wishlist/target/sw.ts",
+  "pwaEnabled": false,
+  "offlineEnabled": false,
+  "offlinePath": "'offline.html'"
+}

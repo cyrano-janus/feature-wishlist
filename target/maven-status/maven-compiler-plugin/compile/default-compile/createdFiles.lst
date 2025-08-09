@@ -1,0 +1,11 @@
+com/example/featurewishlist/repository/VoteRepository.class
+com/example/featurewishlist/model/FeatureRequest.class
+com/example/featurewishlist/view/FeatureRequestView.class
+com/example/featurewishlist/repository/FeatureRequestRepository.class
+com/example/featurewishlist/model/Vote.class
+com/example/featurewishlist/view/FeatureListView.class
+com/example/featurewishlist/model/FeatureRequest$FeatureRequestBuilder.class
+com/example/featurewishlist/FeatureWishlistApplication.class
+com/example/featurewishlist/model/FeatureStatus.class
+com/example/featurewishlist/model/Vote$VoteBuilder.class
+com/example/featurewishlist/config/SecurityConfig.class
