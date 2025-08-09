@@ -9,3 +9,4 @@
 /home/cyrano/DEV/feature-wishlist/src/main/java/com/example/featurewishlist/view/LoginView.java
 /home/cyrano/DEV/feature-wishlist/src/main/java/com/example/featurewishlist/config/SecurityConfig.java
 /home/cyrano/DEV/feature-wishlist/src/main/java/com/example/featurewishlist/model/FeatureStatus.java
+/home/cyrano/DEV/feature-wishlist/src/main/java/com/example/featurewishlist/config/TestDataLoader.java
