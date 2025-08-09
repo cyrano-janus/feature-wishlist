@@ -7,17 +7,17 @@ import com.example.featurewishlist.repository.FeatureRequestRepository;
 import com.example.featurewishlist.repository.VoteRepository;
 
 import com.vaadin.flow.component.UI;
-import com.vaadin.flow.component.html.Anchor;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.dialog.Dialog;
+import com.vaadin.flow.component.formlayout.FormLayout;
 import com.vaadin.flow.component.grid.Grid;
+import com.vaadin.flow.component.html.Anchor;
 import com.vaadin.flow.component.html.H3;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.notification.Notification;
-import com.vaadin.flow.component.formlayout.FormLayout;
+import com.vaadin.flow.component.orderedlayout.FlexComponent.JustifyContentMode;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
-import com.vaadin.flow.component.orderedlayout.FlexComponent.JustifyContentMode;
 import com.vaadin.flow.component.select.Select;
 import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
@@ -27,10 +27,10 @@ import com.vaadin.flow.server.VaadinService;
 import com.vaadin.flow.server.auth.AnonymousAllowed;
 
 import jakarta.servlet.http.Cookie;
-import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.csrf.CsrfToken;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -118,10 +118,19 @@ public class FeatureListView extends VerticalLayout {
             .setAutoWidth(true)
             .setSortable(true);
 
+        // Beschreibung: gekürzt + Tooltip mit vollem Text
+        grid.addColumn(fr -> truncate(fr.getDescription(), 120))
+            .setHeader("Beschreibung")
+            .setAutoWidth(true)
+            .setFlexGrow(2)
+            .setSortable(false)
+            .setTooltipGenerator(fr -> nullSafe(fr.getDescription()));
+
         grid.addColumn(FeatureRequest::getCategory)
             .setHeader("Kategorie")
             .setSortable(true);
 
+        // Admins: editierbarer Status; Andere: read-only Spalte
         if (isAdmin()) {
             grid.addComponentColumn(this::createStatusSelector).setHeader("Status bearbeiten");
         } else {
@@ -136,6 +145,11 @@ public class FeatureListView extends VerticalLayout {
             .setAutoWidth(true)
             .setKey("createdAt");
 
+        // Ticket-Link (optional)
+        grid.addComponentColumn(fr -> createTicketAnchor(fr.getTicketUrl()))
+            .setHeader("Ticket");
+
+        // Votes
         grid.addComponentColumn(this::createVoteButton).setHeader("Votes");
 
         grid.setAllRowsVisible(true);
@@ -211,7 +225,6 @@ public class FeatureListView extends VerticalLayout {
             cookie.setMaxAge(60 * 60 * 24 * 365); // 1 Jahr
             VaadinService.getCurrentResponse().addCookie(cookie);
         }
-
         return voterId;
     }
 
@@ -264,5 +277,27 @@ public class FeatureListView extends VerticalLayout {
         dialog.add(new H3("Feature erstellen"), formLayout, buttons);
 
         dialog.open();
+    }
+
+    // ---------- Helfer ----------
+
+    private String truncate(String text, int max) {
+        if (text == null) return "";
+        String t = text.trim();
+        return t.length() <= max ? t : t.substring(0, max - 1) + "…";
+    }
+
+    private String nullSafe(String text) {
+        return text == null ? "" : text;
+    }
+
+    private Anchor createTicketAnchor(String url) {
+        if (url == null || url.isBlank()) {
+            return new Anchor("", "—");
+        }
+        Anchor a = new Anchor(url, "Ticket");
+        a.setTarget("_blank");
+        a.getElement().setAttribute("rel", "noopener noreferrer");
+        return a;
     }
 }

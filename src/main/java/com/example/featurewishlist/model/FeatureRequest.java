@@ -22,6 +22,10 @@ public class FeatureRequest {
 
     private String category;
 
+    // 🔽 NEU: optionaler Ticket-Link (z. B. Jira)
+    @Column(length = 1024)
+    private String ticketUrl;
+
     private LocalDateTime createdAt = LocalDateTime.now();
 
     @Enumerated(EnumType.STRING)
