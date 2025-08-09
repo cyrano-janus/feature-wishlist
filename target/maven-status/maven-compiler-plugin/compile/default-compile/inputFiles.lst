@@ -4,6 +4,7 @@
 /home/cyrano/DEV/feature-wishlist/src/main/java/com/example/featurewishlist/view/FeatureRequestView.java
 /home/cyrano/DEV/feature-wishlist/src/main/java/com/example/featurewishlist/FeatureWishlistApplication.java
 /home/cyrano/DEV/feature-wishlist/src/main/java/com/example/featurewishlist/view/FeatureListView.java
+/home/cyrano/DEV/feature-wishlist/src/main/java/com/example/featurewishlist/view/AdminFeatureView.java
 /home/cyrano/DEV/feature-wishlist/src/main/java/com/example/featurewishlist/repository/VoteRepository.java
 /home/cyrano/DEV/feature-wishlist/src/main/java/com/example/featurewishlist/view/LoginView.java
 /home/cyrano/DEV/feature-wishlist/src/main/java/com/example/featurewishlist/config/SecurityConfig.java

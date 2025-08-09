@@ -100,7 +100,13 @@ public class FeatureListView extends VerticalLayout {
             );
         });
 
-        bar.add(who, logout);
+        // Optional: Admin-Link, wenn Admin eingeloggt
+        if (isAdmin()) {
+            Anchor adminLink = new Anchor("admin", "Admin");
+            bar.add(who, new HorizontalLayout(adminLink, logout));
+        } else {
+            bar.add(who, logout);
+        }
         return bar;
     }
 
