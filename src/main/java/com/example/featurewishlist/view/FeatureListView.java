@@ -6,14 +6,20 @@ import com.example.featurewishlist.model.Vote;
 import com.example.featurewishlist.repository.FeatureRequestRepository;
 import com.example.featurewishlist.repository.VoteRepository;
 
+import com.example.featurewishlist.ui.ThemeUtil;
+
 import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.formlayout.FormLayout;
 import com.vaadin.flow.component.grid.Grid;
+import com.vaadin.flow.component.grid.GridSortOrder;
+import com.vaadin.flow.component.grid.GridVariant;
 import com.vaadin.flow.component.html.Anchor;
 import com.vaadin.flow.component.html.H3;
 import com.vaadin.flow.component.html.Span;
+import com.vaadin.flow.component.icon.Icon;
+import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.orderedlayout.FlexComponent.JustifyContentMode;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
@@ -21,6 +27,7 @@ import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.select.Select;
 import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
+import com.vaadin.flow.data.provider.SortDirection;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.server.VaadinService;
@@ -40,7 +47,7 @@ import java.util.stream.Collectors;
 
 @Route("")
 @PageTitle("Feature-Übersicht")
-@AnonymousAllowed // Seite ist ohne Login sichtbar
+@AnonymousAllowed
 public class FeatureListView extends VerticalLayout {
 
     private final FeatureRequestRepository repository;
@@ -59,10 +66,22 @@ public class FeatureListView extends VerticalLayout {
         configureFilter();
         configureGrid();
 
-        // Auth-Leiste (Login/Logout)
-        HorizontalLayout authBar = buildAuthBar();
+        // Dark Mode gemäß Cookie/System setzen
+        ThemeUtil.applySavedThemeOrSystemDefault();
 
-        // Aktionen: Filter + optional Add-Button
+        // Auth-Leiste + Theme-Toggle
+        HorizontalLayout authBar = buildAuthBar();
+        Button themeToggle = new Button(new Icon(ThemeUtil.isDark() ? VaadinIcon.SUN_O : VaadinIcon.MOON_O));
+        themeToggle.getElement().setProperty("title", "Theme umschalten (Hell/Dunkel)");
+        themeToggle.addClickListener(e -> {
+            ThemeUtil.toggle();
+            themeToggle.setIcon(new Icon(ThemeUtil.isDark() ? VaadinIcon.SUN_O : VaadinIcon.MOON_O));
+        });
+        HorizontalLayout header = new HorizontalLayout(authBar, themeToggle);
+        header.setWidthFull();
+        header.setJustifyContentMode(JustifyContentMode.BETWEEN);
+
+        // Aktionen: Filter + optional Add-Button (nur eingeloggt)
         HorizontalLayout actions = new HorizontalLayout();
         actions.add(statusFilter);
         if (isAuthenticated()) {
@@ -70,7 +89,7 @@ public class FeatureListView extends VerticalLayout {
             actions.add(addFeatureButton);
         }
 
-        add(authBar, actions, grid);
+        add(header, actions, grid);
         updateGrid(null);
     }
 
@@ -100,7 +119,6 @@ public class FeatureListView extends VerticalLayout {
             );
         });
 
-        // Optional: Admin-Link, wenn Admin eingeloggt
         if (isAdmin()) {
             Anchor adminLink = new Anchor("admin", "Admin");
             bar.add(who, new HorizontalLayout(adminLink, logout));
@@ -119,33 +137,42 @@ public class FeatureListView extends VerticalLayout {
     }
 
     private void configureGrid() {
+        grid.removeAllColumns();
+        grid.setWidthFull();
+        grid.setAllRowsVisible(true);
+        grid.addThemeVariants(GridVariant.LUMO_ROW_STRIPES, GridVariant.LUMO_WRAP_CELL_CONTENT);
+
         grid.addColumn(FeatureRequest::getTitle)
             .setHeader("Titel")
             .setAutoWidth(true)
-            .setSortable(true);
+            .setSortable(true)
+            .setFlexGrow(2);
 
-        // Beschreibung: gekürzt + Tooltip mit vollem Text
+        // Beschreibung: gekürzt + Tooltip
         grid.addColumn(fr -> truncate(fr.getDescription(), 120))
             .setHeader("Beschreibung")
             .setAutoWidth(true)
             .setFlexGrow(2)
-            .setSortable(false)
             .setTooltipGenerator(fr -> nullSafe(fr.getDescription()));
 
         grid.addColumn(FeatureRequest::getCategory)
             .setHeader("Kategorie")
-            .setSortable(true);
+            .setSortable(true)
+            .setAutoWidth(true);
 
-        // Admins: editierbarer Status; Andere: read-only Spalte
+        // Status: für Admin editierbar, sonst read-only
         if (isAdmin()) {
-            grid.addComponentColumn(this::createStatusSelector).setHeader("Status bearbeiten");
+            grid.addComponentColumn(this::createStatusSelector)
+                .setHeader("Status bearbeiten")
+                .setAutoWidth(true);
         } else {
             grid.addColumn(FeatureRequest::getStatus)
                 .setHeader("Status")
-                .setSortable(true);
+                .setSortable(true)
+                .setAutoWidth(true);
         }
 
-        grid.addColumn(FeatureRequest::getCreatedAt)
+        grid.addColumn(fr -> fr.getCreatedAt() != null ? fr.getCreatedAt() : "")
             .setHeader("Erstellt am")
             .setSortable(true)
             .setAutoWidth(true)
@@ -153,12 +180,23 @@ public class FeatureListView extends VerticalLayout {
 
         // Ticket-Link (optional)
         grid.addComponentColumn(fr -> createTicketAnchor(fr.getTicketUrl()))
-            .setHeader("Ticket");
+            .setHeader("Ticket")
+            .setAutoWidth(true);
 
-        // Votes
-        grid.addComponentColumn(this::createVoteButton).setHeader("Votes");
+        // ✅ Sortierbare Votes-Spalte (Zahl)
+        grid.addColumn(fr -> voteRepository.countByFeature(fr))
+            .setHeader("Votes")
+            .setComparator((a, b) -> Long.compare(
+                voteRepository.countByFeature(a), voteRepository.countByFeature(b)))
+            .setAutoWidth(true)
+            .setKey("votes");
 
-        grid.setAllRowsVisible(true);
+        // Vote-Button (nur für eingeloggte Nutzer aktiv)
+        grid.addComponentColumn(this::createVoteButton)
+            .setHeader("Abstimmen")
+            .setAutoWidth(true);
+
+        grid.getStyle().set("margin-top", "0.5rem");
     }
 
     private Select<FeatureStatus> createStatusSelector(FeatureRequest feature) {
@@ -242,6 +280,12 @@ public class FeatureListView extends VerticalLayout {
                     .collect(Collectors.toList());
         }
         grid.setItems(all);
+
+        // Standard: meist gevotet zuerst
+        var votesCol = grid.getColumnByKey("votes");
+        if (votesCol != null) {
+            grid.sort(java.util.List.of(new GridSortOrder<>(votesCol, SortDirection.DESCENDING)));
+        }
     }
 
     private void openAddFeatureDialog() {

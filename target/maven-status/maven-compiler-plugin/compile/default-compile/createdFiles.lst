@@ -1,5 +1,6 @@
 com/example/featurewishlist/view/AdminFeatureView.class
 com/example/featurewishlist/model/FeatureRequest.class
+com/example/featurewishlist/AppShell.class
 com/example/featurewishlist/view/LoginView.class
 com/example/featurewishlist/view/FeatureRequestView.class
 com/example/featurewishlist/model/Vote.class
@@ -9,6 +10,7 @@ com/example/featurewishlist/config/SecurityConfig.class
 com/example/featurewishlist/repository/VoteRepository.class
 com/example/featurewishlist/repository/FeatureRequestRepository.class
 com/example/featurewishlist/view/FeatureListView.class
+com/example/featurewishlist/ui/ThemeUtil.class
 com/example/featurewishlist/model/FeatureRequest$FeatureRequestBuilder.class
 com/example/featurewishlist/FeatureWishlistApplication.class
 com/example/featurewishlist/model/FeatureStatus.class

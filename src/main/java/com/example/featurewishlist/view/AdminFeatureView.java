@@ -3,12 +3,18 @@ package com.example.featurewishlist.view;
 import com.example.featurewishlist.model.FeatureRequest;
 import com.example.featurewishlist.model.FeatureStatus;
 import com.example.featurewishlist.repository.FeatureRequestRepository;
+import com.example.featurewishlist.repository.VoteRepository;
 
+import com.vaadin.flow.component.Key;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.formlayout.FormLayout;
 import com.vaadin.flow.component.grid.Grid;
+import com.vaadin.flow.component.grid.GridSortOrder;
+import com.vaadin.flow.component.grid.GridVariant;
 import com.vaadin.flow.component.html.H3;
+import com.vaadin.flow.component.icon.Icon;
+import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
@@ -16,6 +22,7 @@ import com.vaadin.flow.component.select.Select;
 import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.data.binder.Binder;
+import com.vaadin.flow.data.provider.SortDirection;
 import com.vaadin.flow.data.validator.StringLengthValidator;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
@@ -31,10 +38,12 @@ import java.util.List;
 public class AdminFeatureView extends VerticalLayout {
 
     private final FeatureRequestRepository repository;
+    private final VoteRepository voteRepository;
     private final Grid<FeatureRequest> grid = new Grid<>(FeatureRequest.class, false);
 
-    public AdminFeatureView(FeatureRequestRepository repository) {
+    public AdminFeatureView(FeatureRequestRepository repository, VoteRepository voteRepository) {
         this.repository = repository;
+        this.voteRepository = voteRepository;
 
         setSizeFull();
         setPadding(true);
@@ -46,60 +55,73 @@ public class AdminFeatureView extends VerticalLayout {
     }
 
     private void configureGrid() {
+        grid.removeAllColumns();
         grid.setWidthFull();
+        grid.setAllRowsVisible(true);
+        grid.addThemeVariants(GridVariant.LUMO_ROW_STRIPES, GridVariant.LUMO_WRAP_CELL_CONTENT);
+
+        // Edit-Button pro Zeile (links fixiert)
+        grid.addComponentColumn(fr -> {
+            Button edit = new Button(new Icon(VaadinIcon.EDIT));
+            edit.getElement().setAttribute("title", "Feature bearbeiten");
+            edit.addClickListener(e -> openEditDialog(fr));
+            return edit;
+        }).setHeader("Aktion").setFrozen(true).setFlexGrow(0).setAutoWidth(true);
 
         grid.addColumn(FeatureRequest::getTitle)
-            .setHeader("Titel")
-            .setSortable(true)
-            .setAutoWidth(true)
-            .setFlexGrow(2);
+            .setHeader("Titel").setSortable(true).setAutoWidth(true).setFlexGrow(2);
 
         grid.addColumn(FeatureRequest::getCategory)
-            .setHeader("Kategorie")
-            .setSortable(true)
-            .setAutoWidth(true);
+            .setHeader("Kategorie").setSortable(true).setAutoWidth(true);
 
         grid.addColumn(FeatureRequest::getStatus)
-            .setHeader("Status")
-            .setSortable(true)
+            .setHeader("Status").setSortable(true).setAutoWidth(true);
+
+        // Votes-Spalte
+        grid.addColumn(fr -> voteRepository.countByFeature(fr))
+            .setHeader("Votes")
+            .setKey("votes")
+            .setComparator((a, b) -> Long.compare(
+                voteRepository.countByFeature(a), voteRepository.countByFeature(b)))
             .setAutoWidth(true);
 
         grid.addColumn(FeatureRequest::getTicketUrl)
-            .setHeader("Ticket-URL")
-            .setAutoWidth(true);
+            .setHeader("Ticket-URL").setAutoWidth(true);
 
         grid.addColumn(FeatureRequest::getCreatedAt)
-            .setHeader("Erstellt am")
-            .setSortable(true)
-            .setAutoWidth(true);
+            .setHeader("Erstellt am").setSortable(true).setAutoWidth(true);
 
-        // 👉 pro Zeile ein Edit-Button, der ein Popup öffnet
-        grid.addComponentColumn(this::createEditButton)
-            .setHeader("Aktion")
-            .setAutoWidth(true)
-            .setFlexGrow(0);
+        // Zeilen-Highlight für offene Features
+        grid.setClassNameGenerator(fr -> fr.getStatus() == FeatureStatus.OPEN ? "status-open" : "");
 
         add(grid);
-    }
 
-    private Button createEditButton(FeatureRequest fr) {
-        return new Button("Bearbeiten", e -> openEditDialog(fr));
+        // CSS für linke farbige Kante bei offenen Features
+        getElement().executeJs("""
+            const s=document.createElement('style');
+            s.innerHTML='.status-open>td:first-child{border-left:3px solid var(--lumo-primary-color)}';
+            document.head.appendChild(s);
+        """);
     }
 
     private void openEditDialog(FeatureRequest fr) {
         Dialog dialog = new Dialog();
         dialog.setHeaderTitle("Feature bearbeiten");
+        dialog.setModal(true);
+        dialog.setDraggable(true);
+        dialog.setResizable(true);
+        dialog.setCloseOnEsc(true);
+        dialog.setCloseOnOutsideClick(false);
 
-        // Felder
         TextField title = new TextField("Titel");
         TextField category = new TextField("Kategorie");
 
-        Select<FeatureStatus> status = new Select<>(); // wichtig: leerer Ctor
+        Select<FeatureStatus> status = new Select<>();
         status.setItems(FeatureStatus.values());
         status.setLabel("Status");
 
         TextField ticketUrl = new TextField("Ticket-URL (optional)");
-        ticketUrl.setPlaceholder("https://jira/... ODER Ticket-Key (z. B. PROJ-123)");
+        ticketUrl.setPlaceholder("https://jira/... ODER Ticket-Key");
         ticketUrl.setClearButtonVisible(true);
         ticketUrl.setWidthFull();
 
@@ -107,9 +129,7 @@ public class AdminFeatureView extends VerticalLayout {
         description.setWidthFull();
         description.setMinHeight("8rem");
 
-        // Binder + Validierung
         Binder<FeatureRequest> binder = new Binder<>(FeatureRequest.class);
-
         binder.forField(title)
             .asRequired("Titel ist erforderlich")
             .withValidator(new StringLengthValidator("Mind. 3 Zeichen", 3, 255))
@@ -123,10 +143,9 @@ public class AdminFeatureView extends VerticalLayout {
             .asRequired("Status ist erforderlich")
             .bind(FeatureRequest::getStatus, FeatureRequest::setStatus);
 
-        // Ticket-URL: leer ODER http/https ODER Ticket-Key (wird bei Save zur URL gebaut, wenn Basis gesetzt)
         binder.forField(ticketUrl)
             .withValidator(v -> v == null || v.isBlank() || looksLikeUrl(v) || looksLikeTicketKey(v),
-                "Gültige URL (http/https) oder Ticket-Key wie PROJ-123")
+                "Gültige URL oder Ticket-Key wie PROJ-123")
             .bind(FeatureRequest::getTicketUrl, FeatureRequest::setTicketUrl);
 
         binder.forField(description)
@@ -134,56 +153,59 @@ public class AdminFeatureView extends VerticalLayout {
             .bind(FeatureRequest::getDescription, FeatureRequest::setDescription);
 
         binder.readBean(fr);
+        status.setValue(fr.getStatus());
 
-        // Layout
         FormLayout form = new FormLayout(title, category, status, ticketUrl, description);
         form.setWidth("900px");
         form.setColspan(description, 2);
 
-        Button save = new Button("Speichern", e -> {
-            // Validierung
-            var result = binder.validate();
-            if (!result.isOk()) {
-                Notification.show("Bitte Eingaben prüfen.", 3000, Notification.Position.MIDDLE);
-                return;
-            }
+        Button save = new Button("Speichern", new Icon(VaadinIcon.CHECK));
+        save.getElement().getThemeList().add("primary");
+        save.setEnabled(false);
+        save.addClickShortcut(Key.ENTER);
 
-            // Ticket-Key → URL bauen, falls Basis vorhanden (12‑Factor via ENV)
-            String base = System.getenv("APP_TICKET_BASE_URL"); // z. B. https://jira.example.com/browse/
+        Button cancel = new Button("Abbrechen", new Icon(VaadinIcon.CLOSE_SMALL));
+        cancel.addClickShortcut(Key.ESCAPE);
+        cancel.addClickListener(e -> dialog.close());
+
+        binder.addStatusChangeListener(ev -> {
+            boolean valid = !ev.hasValidationErrors();
+            boolean dirty = binder.hasChanges();
+            save.setEnabled(valid && dirty);
+        });
+
+        save.addClickListener(e -> {
             String val = ticketUrl.getValue();
-            if (val != null && !val.isBlank() && !looksLikeUrl(val) && looksLikeTicketKey(val) && base != null && !base.isBlank()) {
+            String base = System.getenv("APP_TICKET_BASE_URL");
+            if (val != null && !val.isBlank() && !looksLikeUrl(val) && looksLikeTicketKey(val)
+                    && base != null && !base.isBlank()) {
                 ticketUrl.setValue(base.endsWith("/") ? base + val : base + "/" + val);
             }
-
-            try {
-                if (binder.writeBeanIfValid(fr)) {
-                    repository.save(fr);
-                    Notification.show("Gespeichert");
-                    dialog.close();
-                    reload();
-                }
-            } catch (Exception ex) {
-                Notification.show("Fehler beim Speichern: " + ex.getMessage(), 4000, Notification.Position.MIDDLE);
+            if (binder.writeBeanIfValid(fr)) {
+                repository.save(fr);
+                Notification.show("Gespeichert");
+                dialog.close();
+                reload();
+            } else {
+                Notification.show("Bitte Eingaben prüfen.", 3000, Notification.Position.MIDDLE);
             }
         });
-        Button cancel = new Button("Abbrechen", e -> dialog.close());
 
         HorizontalLayout buttons = new HorizontalLayout(save, cancel);
-        buttons.setSpacing(true);
-
         dialog.add(form, buttons);
-        dialog.setModal(true);
-        dialog.setDraggable(true);
-        dialog.setResizable(true);
         dialog.open();
     }
 
     private void reload() {
         List<FeatureRequest> items = repository.findAll();
         grid.setItems(items);
+
+        var votesCol = grid.getColumnByKey("votes");
+        if (votesCol != null) {
+            grid.sort(List.of(new GridSortOrder<>(votesCol, SortDirection.DESCENDING)));
+        }
     }
 
-    // --- kleine Helfer --- //
     private boolean looksLikeUrl(String v) {
         try {
             var u = new URI(v);
@@ -195,7 +217,6 @@ public class AdminFeatureView extends VerticalLayout {
     }
 
     private boolean looksLikeTicketKey(String v) {
-        // einfache Heuristik: ABC-123
         return v != null && v.matches("[A-Z][A-Z0-9]+-\\d+");
     }
 }
