@@ -5,29 +5,30 @@ import com.example.featurewishlist.model.FeatureStatus;
 import com.example.featurewishlist.model.Vote;
 import com.example.featurewishlist.repository.FeatureRequestRepository;
 import com.example.featurewishlist.repository.VoteRepository;
-
 import com.example.featurewishlist.ui.ThemeUtil;
 
 import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.button.Button;
+import com.vaadin.flow.component.dependency.CssImport;
 import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.formlayout.FormLayout;
-import com.vaadin.flow.component.grid.Grid;
-import com.vaadin.flow.component.grid.GridSortOrder;
-import com.vaadin.flow.component.grid.GridVariant;
 import com.vaadin.flow.component.html.Anchor;
 import com.vaadin.flow.component.html.H3;
+import com.vaadin.flow.component.html.H4;
+import com.vaadin.flow.component.html.Paragraph;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.icon.Icon;
 import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.notification.Notification;
+import com.vaadin.flow.component.orderedlayout.FlexComponent.Alignment;
 import com.vaadin.flow.component.orderedlayout.FlexComponent.JustifyContentMode;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.select.Select;
 import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
-import com.vaadin.flow.data.provider.SortDirection;
+import com.vaadin.flow.component.virtuallist.VirtualList;
+import com.vaadin.flow.data.renderer.ComponentRenderer;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.server.VaadinService;
@@ -40,6 +41,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.csrf.CsrfToken;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -48,11 +50,13 @@ import java.util.stream.Collectors;
 @Route("")
 @PageTitle("Feature-Übersicht")
 @AnonymousAllowed
+@CssImport("./styles/feature-list.css")
 public class FeatureListView extends VerticalLayout {
 
     private final FeatureRequestRepository repository;
     private final VoteRepository voteRepository;
-    private final Grid<FeatureRequest> grid = new Grid<>(FeatureRequest.class, false);
+
+    private final VirtualList<FeatureRequest> list = new VirtualList<>();
     private final Select<FeatureStatus> statusFilter = new Select<>();
 
     public FeatureListView(FeatureRequestRepository repository, VoteRepository voteRepository) {
@@ -63,159 +67,150 @@ public class FeatureListView extends VerticalLayout {
         setPadding(true);
         setSpacing(true);
 
-        configureFilter();
-        configureGrid();
-
-        // Dark Mode gemäß Cookie/System setzen
+        // Dark Mode anwenden (Cookie/System)
         ThemeUtil.applySavedThemeOrSystemDefault();
 
-        // Auth-Leiste + Theme-Toggle
-        HorizontalLayout authBar = buildAuthBar();
-        Button themeToggle = new Button(new Icon(ThemeUtil.isDark() ? VaadinIcon.SUN_O : VaadinIcon.MOON_O));
-        themeToggle.getElement().setProperty("title", "Theme umschalten (Hell/Dunkel)");
-        themeToggle.addClickListener(e -> {
-            ThemeUtil.toggle();
-            themeToggle.setIcon(new Icon(ThemeUtil.isDark() ? VaadinIcon.SUN_O : VaadinIcon.MOON_O));
-        });
-        HorizontalLayout header = new HorizontalLayout(authBar, themeToggle);
-        header.setWidthFull();
-        header.setJustifyContentMode(JustifyContentMode.BETWEEN);
+        // Header (Login/Logout/Admin + Theme-Toggle)
+        HorizontalLayout header = buildHeader();
 
-        // Aktionen: Filter + optional Add-Button (nur eingeloggt)
-        HorizontalLayout actions = new HorizontalLayout();
-        actions.add(statusFilter);
-        if (isAuthenticated()) {
-            Button addFeatureButton = new Button("➕ Feature hinzufügen", e -> openAddFeatureDialog());
-            actions.add(addFeatureButton);
-        }
+        // Filter + "Feature hinzufügen" (nur eingeloggt)
+        HorizontalLayout actions = buildActions();
 
-        add(header, actions, grid);
-        updateGrid(null);
+        configureList();
+
+        add(header, actions, list);
+        updateList(null);
     }
 
-    private HorizontalLayout buildAuthBar() {
+    private HorizontalLayout buildHeader() {
         HorizontalLayout bar = new HorizontalLayout();
         bar.setWidthFull();
         bar.setJustifyContentMode(JustifyContentMode.BETWEEN);
         bar.getStyle().set("border-bottom", "1px solid var(--lumo-contrast-10pct)");
         bar.getStyle().set("padding", "0.25rem 0");
 
+        // left: who / login
+        HorizontalLayout left = new HorizontalLayout();
+        left.setSpacing(true);
+
         if (!isAuthenticated()) {
             Anchor login = new Anchor("login", "Login");
-            bar.add(new Span("Anonym"), login);
-            return bar;
+            left.add(new Span("Anonym"), login);
+        } else {
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            String username = auth != null ? auth.getName() : "user";
+            Span who = new Span("Angemeldet als: " + username);
+            left.add(who);
+
+            if (isAdmin()) {
+                Anchor admin = new Anchor("admin", "Admin");
+                left.add(admin);
+            }
+
+            Button logout = new Button("Logout", e -> {
+                CsrfToken csrf = (CsrfToken) VaadinService.getCurrentRequest().getAttribute("_csrf");
+                String token = csrf != null ? csrf.getToken() : "";
+                UI.getCurrent().getPage().executeJs(
+                    "fetch('logout',{method:'POST',headers:{'X-CSRF-TOKEN': $0}}).then(()=>location.assign('/'));",
+                    token
+                );
+            });
+            left.add(logout);
         }
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String username = auth != null ? auth.getName() : "user";
-        Span who = new Span("Angemeldet als: " + username);
-
-        Button logout = new Button("Logout", e -> {
-            CsrfToken csrf = (CsrfToken) VaadinService.getCurrentRequest().getAttribute("_csrf");
-            String token = csrf != null ? csrf.getToken() : "";
-            UI.getCurrent().getPage().executeJs(
-                "fetch('logout',{method:'POST',headers:{'X-CSRF-TOKEN': $0}}).then(()=>location.assign('/'));",
-                token
-            );
+        // right: theme toggle
+        Button themeToggle = new Button(new Icon(ThemeUtil.isDark() ? VaadinIcon.SUN_O : VaadinIcon.MOON_O));
+        themeToggle.getElement().setProperty("title", "Theme umschalten (Hell/Dunkel)");
+        themeToggle.addClickListener(e -> {
+            ThemeUtil.toggle();
+            themeToggle.setIcon(new Icon(ThemeUtil.isDark() ? VaadinIcon.SUN_O : VaadinIcon.MOON_O));
         });
 
-        if (isAdmin()) {
-            Anchor adminLink = new Anchor("admin", "Admin");
-            bar.add(who, new HorizontalLayout(adminLink, logout));
-        } else {
-            bar.add(who, logout);
-        }
+        bar.add(left, themeToggle);
+        bar.setAlignItems(Alignment.CENTER);
         return bar;
     }
 
-    private void configureFilter() {
+    private HorizontalLayout buildActions() {
         statusFilter.setLabel("Status filtern");
         statusFilter.setItems(FeatureStatus.values());
         statusFilter.setEmptySelectionAllowed(true);
         statusFilter.setPlaceholder("Alle");
-        statusFilter.addValueChangeListener(e -> updateGrid(e.getValue()));
-    }
+        statusFilter.addValueChangeListener(e -> updateList(e.getValue()));
 
-    private void configureGrid() {
-        grid.removeAllColumns();
-        grid.setWidthFull();
-        grid.setAllRowsVisible(true);
-        grid.addThemeVariants(GridVariant.LUMO_ROW_STRIPES, GridVariant.LUMO_WRAP_CELL_CONTENT);
-
-        grid.addColumn(FeatureRequest::getTitle)
-            .setHeader("Titel")
-            .setAutoWidth(true)
-            .setSortable(true)
-            .setFlexGrow(2);
-
-        // Beschreibung: gekürzt + Tooltip
-        grid.addColumn(fr -> truncate(fr.getDescription(), 120))
-            .setHeader("Beschreibung")
-            .setAutoWidth(true)
-            .setFlexGrow(2)
-            .setTooltipGenerator(fr -> nullSafe(fr.getDescription()));
-
-        grid.addColumn(FeatureRequest::getCategory)
-            .setHeader("Kategorie")
-            .setSortable(true)
-            .setAutoWidth(true);
-
-        // Status: für Admin editierbar, sonst read-only
-        if (isAdmin()) {
-            grid.addComponentColumn(this::createStatusSelector)
-                .setHeader("Status bearbeiten")
-                .setAutoWidth(true);
-        } else {
-            grid.addColumn(FeatureRequest::getStatus)
-                .setHeader("Status")
-                .setSortable(true)
-                .setAutoWidth(true);
+        HorizontalLayout actions = new HorizontalLayout(statusFilter);
+        if (isAuthenticated()) {
+            Button addFeatureButton = new Button("➕ Feature hinzufügen", e -> openAddFeatureDialog());
+            actions.add(addFeatureButton);
         }
-
-        grid.addColumn(fr -> fr.getCreatedAt() != null ? fr.getCreatedAt() : "")
-            .setHeader("Erstellt am")
-            .setSortable(true)
-            .setAutoWidth(true)
-            .setKey("createdAt");
-
-        // Ticket-Link (optional)
-        grid.addComponentColumn(fr -> createTicketAnchor(fr.getTicketUrl()))
-            .setHeader("Ticket")
-            .setAutoWidth(true);
-
-        // ✅ Sortierbare Votes-Spalte (Zahl)
-        grid.addColumn(fr -> voteRepository.countByFeature(fr))
-            .setHeader("Votes")
-            .setComparator((a, b) -> Long.compare(
-                voteRepository.countByFeature(a), voteRepository.countByFeature(b)))
-            .setAutoWidth(true)
-            .setKey("votes");
-
-        // Vote-Button (nur für eingeloggte Nutzer aktiv)
-        grid.addComponentColumn(this::createVoteButton)
-            .setHeader("Abstimmen")
-            .setAutoWidth(true);
-
-        grid.getStyle().set("margin-top", "0.5rem");
+        return actions;
     }
 
-    private Select<FeatureStatus> createStatusSelector(FeatureRequest feature) {
-        Select<FeatureStatus> statusSelect = new Select<>();
-        statusSelect.setItems(FeatureStatus.values());
-        statusSelect.setValue(feature.getStatus());
-        statusSelect.setWidth("180px");
-        statusSelect.addValueChangeListener(event -> {
-            feature.setStatus(event.getValue());
-            repository.save(feature);
-            Notification.show("Status aktualisiert");
-            updateGrid(statusFilter.getValue());
-        });
-        return statusSelect;
+    private void configureList() {
+        list.setRenderer(new ComponentRenderer<>(this::createFeatureCard));
+        list.setHeightFull();
+        addClassName("feature-list-container");
     }
 
-    private Button createVoteButton(FeatureRequest feature) {
-        long votes = voteRepository.countByFeature(feature);
-        Button voteBtn = new Button("👍 " + votes);
+    private VerticalLayout createFeatureCard(FeatureRequest fr) {
+        // LEFT: große Vote-Zahl + Label
+        long votes = voteRepository.countByFeature(fr);
+        Span votesNum = new Span(String.valueOf(votes));
+        votesNum.addClassName("votes-num");
+        Span votesLbl = new Span("votes");
+        votesLbl.addClassName("votes-label");
+
+        VerticalLayout left = new VerticalLayout(votesNum, votesLbl);
+        left.setPadding(false);
+        left.setSpacing(false);
+        left.setAlignItems(Alignment.CENTER);
+        left.addClassName("votes-box");
+
+        // RIGHT: Titel, Beschreibung, Meta-Zeile (Status-Pill, Ticket, Vote-Button)
+        H4 title = new H4(fr.getTitle() != null ? fr.getTitle() : "(ohne Titel)");
+        title.addClassName("feature-title");
+
+        Paragraph desc = new Paragraph(fr.getDescription() != null ? fr.getDescription() : "");
+        desc.addClassName("feature-desc");
+
+        Span statusPill = new Span(mapStatusLabel(fr.getStatus()));
+        var themes = statusPill.getElement().getThemeList();
+        themes.add("badge");
+        themes.add("pill");
+        themes.add("small");
+        statusPill.addClassNames("status-pill", pillClass(fr.getStatus()));
+
+        Anchor ticket = createTicketAnchor(fr.getTicketUrl());
+        ticket.addClassName("ticket-link");
+
+        Button voteBtn = buildVoteButton(fr, votes);
+
+        HorizontalLayout meta = new HorizontalLayout(statusPill, ticket, voteBtn);
+        meta.setSpacing(true);
+        meta.setAlignItems(Alignment.CENTER);
+        meta.addClassName("meta-row");
+
+        VerticalLayout right = new VerticalLayout(title, desc, meta);
+        right.setPadding(false);
+        right.setSpacing(false);
+        right.addClassName("card-right");
+
+        // CARD Container
+        HorizontalLayout row = new HorizontalLayout(left, right);
+        row.setWidthFull();
+        row.setAlignItems(Alignment.START);
+        row.setJustifyContentMode(JustifyContentMode.START);
+
+        VerticalLayout card = new VerticalLayout(row);
+        card.setPadding(true);
+        card.setSpacing(false);
+        card.addClassName("feature-card");
+        return card;
+    }
+
+    private Button buildVoteButton(FeatureRequest feature, long currentVotes) {
+        Button voteBtn = new Button(new Icon(VaadinIcon.THUMBS_UP_O));
+        voteBtn.setText(String.valueOf(currentVotes));
 
         if (!isAuthenticated()) {
             voteBtn.setEnabled(false);
@@ -224,22 +219,86 @@ public class FeatureListView extends VerticalLayout {
         }
 
         voteBtn.addClickListener(e -> {
-            String voterId = getOrCreateVoterId();
-            Optional<Vote> existing = voteRepository.findByFeatureIdAndVoterId(feature.getId(), voterId);
-            if (existing.isPresent()) {
-                Notification.show("Du hast bereits abgestimmt.");
-            } else {
-                Vote vote = Vote.builder()
-                        .feature(feature)
-                        .voterId(voterId)
-                        .votedAt(LocalDateTime.now())
-                        .build();
-                voteRepository.save(vote);
-                updateGrid(statusFilter.getValue());
-            }
+            handleVote(feature);
+            voteBtn.setText(String.valueOf(voteRepository.countByFeature(feature)));
+            // Liste neu sortieren, damit „meist gevotet zuerst“ live bleibt
+            updateList(statusFilter.getValue());
         });
+
         return voteBtn;
     }
+
+    private void handleVote(FeatureRequest feature) {
+        String voterId = getOrCreateVoterId();
+        Optional<Vote> existing = voteRepository.findByFeatureIdAndVoterId(feature.getId(), voterId);
+        if (existing.isPresent()) {
+            Notification.show("Du hast bereits abgestimmt.");
+            return;
+        }
+        Vote vote = Vote.builder()
+                .feature(feature)
+                .voterId(voterId)
+                .votedAt(LocalDateTime.now())
+                .build();
+        voteRepository.save(vote);
+    }
+
+    private void updateList(FeatureStatus filterStatus) {
+        List<FeatureRequest> all = repository.findAll();
+        if (filterStatus != null) {
+            all = all.stream()
+                    .filter(fr -> fr.getStatus() == filterStatus)
+                    .collect(Collectors.toList());
+        }
+        // meisten Votes zuerst
+        all = all.stream()
+                 .sorted(Comparator.comparingLong((FeatureRequest fr) -> voteRepository.countByFeature(fr)).reversed())
+                 .toList();
+        list.setItems(all);
+    }
+
+    private void openAddFeatureDialog() {
+        if (!isAuthenticated()) {
+            Notification.show("Bitte einloggen, um ein Feature hinzuzufügen.");
+            return;
+        }
+
+        Dialog dialog = new Dialog();
+        dialog.setHeaderTitle("Neues Feature hinzufügen");
+
+        TextField title = new TextField("Titel");
+        TextArea description = new TextArea("Beschreibung");
+        TextField category = new TextField("Kategorie");
+
+        Button save = new Button("Speichern", event -> {
+            if (title.isEmpty()) {
+                Notification.show("Titel ist erforderlich");
+                return;
+            }
+            FeatureRequest request = FeatureRequest.builder()
+                    .title(title.getValue())
+                    .description(description.getValue())
+                    .category(category.getValue())
+                    .status(FeatureStatus.OPEN)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+
+            repository.save(request);
+            dialog.close();
+            updateList(statusFilter.getValue());
+            Notification.show("Feature gespeichert");
+        });
+
+        Button cancel = new Button("Abbrechen", e -> dialog.close());
+
+        FormLayout formLayout = new FormLayout(title, description, category);
+        HorizontalLayout buttons = new HorizontalLayout(save, cancel);
+        dialog.add(new H3("Feature erstellen"), formLayout, buttons);
+
+        dialog.open();
+    }
+
+    // ---------- Helpers ----------
 
     private boolean isAuthenticated() {
         var auth = SecurityContextHolder.getContext().getAuthentication();
@@ -272,73 +331,32 @@ public class FeatureListView extends VerticalLayout {
         return voterId;
     }
 
-    private void updateGrid(FeatureStatus filterStatus) {
-        List<FeatureRequest> all = repository.findAll();
-        if (filterStatus != null) {
-            all = all.stream()
-                    .filter(fr -> fr.getStatus() == filterStatus)
-                    .collect(Collectors.toList());
+    private String mapStatusLabel(FeatureStatus s) {
+        if (s == null || s == FeatureStatus.OPEN) {
+            return "Open";
         }
-        grid.setItems(all);
-
-        // Standard: meist gevotet zuerst
-        var votesCol = grid.getColumnByKey("votes");
-        if (votesCol != null) {
-            grid.sort(java.util.List.of(new GridSortOrder<>(votesCol, SortDirection.DESCENDING)));
+        if (s == FeatureStatus.IN_PROGRESS) {
+            return "In Progess";
         }
+        if (s == FeatureStatus.REJECTED) {
+            return "Rejected";
+        }
+        // DONE (oder alles andere)
+        return "Done";
     }
 
-    private void openAddFeatureDialog() {
-        if (!isAuthenticated()) {
-            Notification.show("Bitte einloggen, um ein Feature hinzuzufügen.");
-            return;
+    private String pillClass(FeatureStatus s) {
+        if (s == null || s == FeatureStatus.OPEN) {
+            return "pill-contrast";
         }
-
-        Dialog dialog = new Dialog();
-        dialog.setHeaderTitle("Neues Feature hinzufügen");
-
-        TextField title = new TextField("Titel");
-        TextArea description = new TextArea("Beschreibung");
-        TextField category = new TextField("Kategorie");
-
-        Button save = new Button("Speichern", event -> {
-            if (title.isEmpty()) {
-                Notification.show("Titel ist erforderlich");
-                return;
-            }
-            FeatureRequest request = FeatureRequest.builder()
-                    .title(title.getValue())
-                    .description(description.getValue())
-                    .category(category.getValue())
-                    .status(FeatureStatus.OPEN)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-
-            repository.save(request);
-            dialog.close();
-            updateGrid(statusFilter.getValue());
-            Notification.show("Feature gespeichert");
-        });
-
-        Button cancel = new Button("Abbrechen", e -> dialog.close());
-
-        FormLayout formLayout = new FormLayout(title, description, category);
-        HorizontalLayout buttons = new HorizontalLayout(save, cancel);
-        dialog.add(new H3("Feature erstellen"), formLayout, buttons);
-
-        dialog.open();
-    }
-
-    // ---------- Helfer ----------
-
-    private String truncate(String text, int max) {
-        if (text == null) return "";
-        String t = text.trim();
-        return t.length() <= max ? t : t.substring(0, max - 1) + "…";
-    }
-
-    private String nullSafe(String text) {
-        return text == null ? "" : text;
+        if (s == FeatureStatus.IN_PROGRESS) {
+            return "pill-primary";
+        }        
+        if (s == FeatureStatus.REJECTED) {
+            return "pill-error  ";
+        }
+        // DONE (oder alles andere)
+        return "pill-success";
     }
 
     private Anchor createTicketAnchor(String url) {
